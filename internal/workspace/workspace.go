@@ -3,10 +3,15 @@
 package workspace
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
+
+	"github.com/leebrandt/grndctrl/internal/grind"
 )
 
 const bareRepoName = ".grind.repo.git"
@@ -64,4 +69,51 @@ func FindWorkspaceOrFlag(flagValue string) (string, error) {
 		return "", fmt.Errorf("getting current directory: %w", err)
 	}
 	return FindWorkspace(cwd)
+}
+
+// CollectProjects discovers all project worktrees by running
+// git worktree list against the bare repo, then loads .project.json
+// from each worktree. Worktrees without a valid .project.json are silently
+// skipped.
+func CollectProjects(workspaceRoot string) ([]grind.ProjectConfig, error) {
+	bareRepo := filepath.Join(workspaceRoot, bareRepoName)
+
+	cmd := exec.Command("git", "--git-dir="+bareRepo, "worktree", "list")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("listing worktrees: %w", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	var projects []grind.ProjectConfig
+
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		worktreePath := fields[0]
+
+		projectFilePath := filepath.Join(worktreePath, ".project.json")
+		if _, err := os.Stat(projectFilePath); os.IsNotExist(err) {
+			continue
+		}
+
+		data, err := os.ReadFile(projectFilePath)
+		if err != nil {
+			continue // skip unreadable files
+		}
+
+		var project grind.ProjectConfig
+		if err := json.Unmarshal(data, &project); err != nil {
+			continue // skip malformed files
+		}
+
+		projects = append(projects, project)
+	}
+
+	return projects, nil
 }
