@@ -117,3 +117,63 @@ func CollectProjects(workspaceRoot string) ([]grind.ProjectConfig, error) {
 
 	return projects, nil
 }
+
+// ProjectInfo enriches a ProjectConfig with its worktree path and branch name.
+type ProjectInfo struct {
+	Config       grind.ProjectConfig
+	WorktreePath string
+	Branch       string
+}
+
+// CollectProjectInfos returns enriched project information including
+// worktree path and branch name parsed from git worktree list output.
+// Worktrees without a valid .project.json are silently skipped.
+func CollectProjectInfos(workspaceRoot string) ([]ProjectInfo, error) {
+	bareRepo := filepath.Join(workspaceRoot, bareRepoName)
+
+	cmd := exec.Command("git", "--git-dir="+bareRepo, "worktree", "list")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("listing worktrees: %w", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	var infos []ProjectInfo
+
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		worktreePath := fields[0]
+
+		branch := strings.Trim(fields[2], "[]()")
+		branch = strings.TrimPrefix(branch, "refs/heads/")
+
+		projectFilePath := filepath.Join(worktreePath, ".project.json")
+		if _, err := os.Stat(projectFilePath); os.IsNotExist(err) {
+			continue
+		}
+
+		data, err := os.ReadFile(projectFilePath)
+		if err != nil {
+			continue
+		}
+
+		var project grind.ProjectConfig
+		if err := json.Unmarshal(data, &project); err != nil {
+			continue
+		}
+
+		infos = append(infos, ProjectInfo{
+			Config:       project,
+			WorktreePath: worktreePath,
+			Branch:       branch,
+		})
+	}
+
+	return infos, nil
+}

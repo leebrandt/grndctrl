@@ -53,4 +53,31 @@ var (
 	HelpStyle = lipgloss.NewStyle().
 			Foreground(colorDim).
 			Italic(true)
+
+	// Table styles
+	TableHeaderStyle = lipgloss.NewStyle().
+			Foreground(colorDim).
+			Italic(true).
+			MarginBottom(0)
+
+	SelectedStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#2f3346"))
+
+	ActiveRowStyle = lipgloss.NewStyle().
+			Foreground(colorGreen)
+
+	DirtyRowStyle = lipgloss.NewStyle().
+			Foreground(colorYellow)
+
+	NeverWorkedStyle = lipgloss.NewStyle().
+			Foreground(colorRed).
+			Faint(true)
+
+	StarStyle = lipgloss.NewStyle().
+			Foreground(colorGold)
+
+	RowStyle = lipgloss.NewStyle()
+
+	AltRowStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#1c1e2b"))
 )
