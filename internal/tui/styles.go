@@ -102,4 +102,53 @@ var (
 				BorderForeground(colorAccent).
 				Padding(0, 1).
 				Foreground(colorFg)
+
+	// Detail view styles
+	DetailHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(colorAccent)
+
+	DetailSectionStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(colorAccent).
+				Underline(true)
+
+	DetailLabelStyle = lipgloss.NewStyle().
+				Foreground(colorDim)
+
+	DetailValueStyle = lipgloss.NewStyle().
+				Foreground(colorFg)
+
+	DetailGreenStyle = lipgloss.NewStyle().
+				Foreground(colorGreen)
+
+	DetailRedStyle = lipgloss.NewStyle().
+				Foreground(colorRed)
+
+	DetailYellowStyle = lipgloss.NewStyle().
+				Foreground(colorYellow)
+
+	DetailGoldStyle = lipgloss.NewStyle().
+				Foreground(colorGold)
+
+	DetailDimStyle = lipgloss.NewStyle().
+			Foreground(colorDim)
+
+	DetailSeparator = lipgloss.NewStyle().
+				Foreground(colorDim)
+
+	DetailTableHeaderStyle = lipgloss.NewStyle().
+				Foreground(colorDim).
+				Italic(true)
+
+	DetailAltRowStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#1c1e2b"))
+
+	DetailBadgeStyle = lipgloss.NewStyle().
+				Foreground(colorGreen).
+				Bold(true)
+
+	DetailMutedBadgeStyle = lipgloss.NewStyle().
+				Foreground(colorGreenMuted).
+				Bold(true)
 )

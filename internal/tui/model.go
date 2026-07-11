@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -19,6 +20,7 @@ type viewName int
 const (
 	viewDashboard viewName = iota
 	viewIdeas
+	viewDetail
 )
 
 type projectRow struct {
@@ -62,6 +64,10 @@ type Model struct {
 
 	// view / focus
 	currentView viewName
+
+	// detail view
+	detailProject  int // index into m.projects for the detail view
+	detailViewport viewport.Model
 }
 
 type ProjectsLoadedMsg struct {
@@ -77,10 +83,11 @@ func NewModel(ws string) Model {
 	s.Spinner = spinner.MiniDot
 
 	return Model{
-		workspace:   ws,
-		loading:     true,
-		spinner:     s,
-		currentView: viewDashboard,
+		workspace:      ws,
+		loading:        true,
+		spinner:        s,
+		currentView:    viewDashboard,
+		detailViewport: viewport.New(80, 20),
 	}
 }
 
@@ -100,6 +107,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		m.width = msg.Width
 		m.height = msg.Height
+		m.detailViewport = viewport.New(msg.Width-4, m.detailContentHeight())
+		m.detailViewport.Style = lipgloss.NewStyle().Padding(0, 2)
 		return m, nil
 
 	case ProjectsLoadedMsg:
@@ -139,6 +148,11 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m.quit()
+	}
+
+	// Detail view keys
+	if m.currentView == viewDetail {
+		return m.handleDetailKey(msg)
 	}
 
 	// Filter mode keys
@@ -182,11 +196,58 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		m.toggleFocus()
 	case "enter":
-		// Placeholder for Spec 6 (project detail)
-		// Currently a no-op
+		m.openDetail()
 	}
 
 	return m, nil
+}
+
+// handleDetailKey handles key events when the detail view is active.
+func (m *Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.currentView = viewDashboard
+		return m, nil
+	case "j", "down":
+		m.detailViewport.LineDown(1)
+	case "k", "up":
+		m.detailViewport.LineUp(1)
+	case "g":
+		m.detailViewport.SetYOffset(0)
+	case "G":
+		m.detailViewport.SetYOffset(m.detailViewport.YOffset + 9999)
+	case "ctrl+d":
+		m.detailViewport.HalfViewDown()
+	case "ctrl+u":
+		m.detailViewport.HalfViewUp()
+	}
+	return m, nil
+}
+
+// openDetail transitions to the detail view for the currently selected project.
+func (m *Model) openDetail() {
+	if len(m.projects) == 0 {
+		return
+	}
+	m.detailProject = m.cursor
+	m.currentView = viewDetail
+	m.detailViewport.SetYOffset(0)
+	m.detailViewport.SetContent(m.detailView())
+}
+
+// detailContentHeight returns the available height for the detail viewport.
+func (m *Model) detailContentHeight() int {
+	bannerLines := len(m.activeSessions)
+	if bannerLines > 0 {
+		bannerLines++ // separator
+	}
+	// 1 for status bar
+	overhead := 1 + bannerLines
+	ch := m.height - overhead
+	if ch < 1 {
+		ch = 1
+	}
+	return ch
 }
 
 func (m *Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -454,7 +515,13 @@ func (m Model) View() string {
 	}
 
 	banner := m.activeSessionBanner()
-	content := m.dashboardView()
+
+	var content string
+	if m.currentView == viewDetail {
+		content = m.detailViewport.View()
+	} else {
+		content = m.dashboardView()
+	}
 
 	if banner != "" {
 		content = banner + "\n" + content
