@@ -72,10 +72,11 @@ Organized into sections, top to bottom:
 
 - Section headers: bold, underlined or colored.
 - Table rows: alternating subtle background.
-- Active/invoiced indicators: colored (green = invoiced, yellow = active, red = not invoiced).
+- Active/invoiced indicators: green (`#9ece6a`) for invoiced/active, yellow (`#e0af68`) for in-progress, bright red (`#ff4466`) for not invoiced.
+- Long-term projects: muted green (`#5a7a3a`) for all indicators.
 - Monetary values: formatted with `$` and 2 decimal places.
 - Time durations: human-readable (e.g., "3h 16m" not "3.27h").
-- Use the Lip Gloss styles from Spec 1 consistently.
+- Use the Lip Gloss styles from `internal/tui/styles.go` consistently.
 
 ## Acceptance Criteria
 

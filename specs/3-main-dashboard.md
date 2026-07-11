@@ -23,7 +23,7 @@ type DashboardModel struct {
 }
 ```
 
-On `Init()`, run a command to load projects (via `CollectProjects`), then send them as a `tea.Msg`.
+On `Init()`, run a command to load projects (via `CollectProjectInfos`), then send them as a `tea.Msg`.
 
 ### Table Columns
 
@@ -38,16 +38,21 @@ On `Init()`, run a command to load projects (via `CollectProjects`), then send t
 | Last Session | Relative time (e.g., `3d ago`, `just now`) | left |
 | Last Commit | Relative time | left |
 
-### Color & Styling (Lip Gloss)
+### Color & Styling (Lip Gloss — Tokyo Night palette)
 
 - **Header row**: dim/italic style, separator line below.
-- **Open session** (`▶`): row highlighted in green, name in bold.
-- **Dirty worktree** (`!`): row highlighted in yellow/amber.
-- **Never worked** (no sessions): name shown in red/dim.
-- **Unbilled amount > 0**: unbilled column in green.
-- **Selected row**: inverted or highlighted background.
-- **Long-term** (`★`): gold/yellow star prefix.
-- Alternating row background (very subtle — 1-2 shade difference).
+- **Normal project**: green text (`#9ece6a`).
+- **Active session** (`▶`): bright green text (same green, row marked active).
+- **Dirty worktree** (`!`): yellow text (`#e0af68`).
+- **Never worked** (no sessions): bright red text (`#ff4466`).
+- **Long-term** (`★`): muted green text (`#5a7a3a`) — same green family, darker shade to de-emphasize.
+- **Unbilled amount > 0**: green text (muted green for long-term projects).
+- **Selected row**: highlighted background (`#2f3346`).
+- Alternating row background (very subtle — `#1c1e2b` on odd rows).
+
+### Filtering
+
+Only projects with an active git worktree are shown. Projects that have been published or cancelled (worktree removed by `grind publish`/`grind cancel`) are excluded, matching `grind status` behavior.
 
 ### Sorting
 

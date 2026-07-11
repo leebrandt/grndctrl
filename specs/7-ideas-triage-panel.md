@@ -43,7 +43,7 @@ Idea files are timestamped filenames in `<workspace>/grind/ideas/`. Parse the ti
 
 - **Status**: "Project" if the idea has been turned into a project (a worktree with that idea's project exists), "Idea" if pending, "Rejected" if rejected.
 - **Created**: date parsed from the idea file's timestamp.
-- Rejected rows are shown in red/dim.
+- Rejected rows are shown in bright red (`#ff4466`).
 
 ### Filtering
 

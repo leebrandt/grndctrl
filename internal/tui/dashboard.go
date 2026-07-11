@@ -149,9 +149,6 @@ func (m Model) renderRow(i int, nameW, typeW, lastSessW, lastCommitW int) string
 	if p.LastSession() == nil {
 		nameStyle = NeverWorkedStyle
 	}
-	if p.LongTerm {
-		nameStyle = StarStyle
-	}
 
 	var b strings.Builder
 	b.WriteString(bgStyle.Render(formatCell(status, 2, lipgloss.Left, rowStyle)))
@@ -167,7 +164,11 @@ func (m Model) renderRow(i int, nameW, typeW, lastSessW, lastCommitW int) string
 
 	ubStyle := rowStyle
 	if p.UnbilledAmount() > 0 {
-		ubStyle = GreenStyle
+		if p.LongTerm {
+			ubStyle = ActiveRowMutedStyle
+		} else {
+			ubStyle = GreenStyle
+		}
 	}
 	b.WriteString(bgStyle.Render(formatCell(unbilled, 9, lipgloss.Right, ubStyle)))
 	b.WriteString(" ")
@@ -192,13 +193,24 @@ func (m Model) rowForegroundStyle(i int) lipgloss.Style {
 	row := m.projects[i]
 	p := row.info.Config
 
+	if p.LongTerm {
+		switch {
+		case p.ActiveSession() != nil:
+			return ActiveRowMutedStyle
+		case row.dirty:
+			return DirtyRowMutedStyle
+		default:
+			return LongTermDefaultStyle
+		}
+	}
+
 	switch {
 	case p.ActiveSession() != nil:
 		return ActiveRowStyle
 	case row.dirty:
 		return DirtyRowStyle
 	default:
-		return lipgloss.NewStyle()
+		return GreenStyle
 	}
 }
 

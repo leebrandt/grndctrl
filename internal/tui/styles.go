@@ -11,9 +11,13 @@ const (
 	colorDim      = lipgloss.Color("#565f89") // dim/gray
 	colorAccent   = lipgloss.Color("#7aa2f7") // blue accent
 	colorGreen    = lipgloss.Color("#9ece6a") // green (active, invoiced)
-	colorRed      = lipgloss.Color("#f7768e") // red (alert, never worked)
+	colorRed      = lipgloss.Color("#ff4466") // red (alert, never worked)
 	colorYellow   = lipgloss.Color("#e0af68") // yellow (dirty, warning)
 	colorGold     = lipgloss.Color("#ff9e64") // gold (long-term star)
+
+	colorGreenMuted = lipgloss.Color("#5a7a3a") // muted green (long-term active)
+	colorYellowMuted = lipgloss.Color("#8a7040") // muted yellow (long-term dirty)
+	colorDimMuted   = lipgloss.Color("#444c66") // muted dim (long-term default)
 )
 
 // Base styles.
@@ -70,11 +74,19 @@ var (
 			Foreground(colorYellow)
 
 	NeverWorkedStyle = lipgloss.NewStyle().
-			Foreground(colorRed).
-			Faint(true)
+			Foreground(colorRed)
 
 	StarStyle = lipgloss.NewStyle().
 			Foreground(colorGold)
+
+	ActiveRowMutedStyle = lipgloss.NewStyle().
+				Foreground(colorGreenMuted)
+
+	DirtyRowMutedStyle = lipgloss.NewStyle().
+				Foreground(colorYellowMuted)
+
+	LongTermDefaultStyle = lipgloss.NewStyle().
+				Foreground(colorGreenMuted)
 
 	RowStyle = lipgloss.NewStyle()
 

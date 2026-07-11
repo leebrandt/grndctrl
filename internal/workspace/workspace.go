@@ -125,40 +125,31 @@ type ProjectInfo struct {
 	Branch       string
 }
 
-// CollectProjectInfos returns enriched project information including
-// worktree path and branch name parsed from git worktree list output.
-// Worktrees without a valid .project.json are silently skipped.
+// CollectProjectInfos scans grind/projects/*/ for .project.json files and
+// enriches each with worktree path and branch from git worktree list.
+// Projects without a matching worktree still appear (with empty path/branch).
 func CollectProjectInfos(workspaceRoot string) ([]ProjectInfo, error) {
-	bareRepo := filepath.Join(workspaceRoot, bareRepoName)
+	projectsDir := filepath.Join(workspaceRoot, "grind", "projects")
 
-	cmd := exec.Command("git", "--git-dir="+bareRepo, "worktree", "list")
-	out, err := cmd.Output()
+	entries, err := os.ReadDir(projectsDir)
 	if err != nil {
-		return nil, fmt.Errorf("listing worktrees: %w", err)
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading grind/projects: %w", err)
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	wtMap := worktreeMap(workspaceRoot)
+
 	var infos []ProjectInfo
 
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		worktreePath := fields[0]
-
-		branch := strings.Trim(fields[2], "[]()")
-		branch = strings.TrimPrefix(branch, "refs/heads/")
-
-		projectFilePath := filepath.Join(worktreePath, ".project.json")
-		if _, err := os.Stat(projectFilePath); os.IsNotExist(err) {
+	for _, entry := range entries {
+		if !entry.IsDir() {
 			continue
 		}
 
-		data, err := os.ReadFile(projectFilePath)
+		projectFile := filepath.Join(projectsDir, entry.Name(), ".project.json")
+		data, err := os.ReadFile(projectFile)
 		if err != nil {
 			continue
 		}
@@ -168,12 +159,50 @@ func CollectProjectInfos(workspaceRoot string) ([]ProjectInfo, error) {
 			continue
 		}
 
+		wt, ok := wtMap[entry.Name()]
+		if !ok {
+			continue
+		}
+
 		infos = append(infos, ProjectInfo{
 			Config:       project,
-			WorktreePath: worktreePath,
-			Branch:       branch,
+			WorktreePath: wt.path,
+			Branch:       wt.branch,
 		})
 	}
 
 	return infos, nil
+}
+
+type worktreeEntry struct {
+	path   string
+	branch string
+}
+
+func worktreeMap(workspaceRoot string) map[string]worktreeEntry {
+	bareRepo := filepath.Join(workspaceRoot, bareRepoName)
+
+	cmd := exec.Command("git", "--git-dir="+bareRepo, "worktree", "list")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	m := make(map[string]worktreeEntry)
+
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+
+		path := fields[0]
+		branch := strings.Trim(fields[2], "[]()")
+		branch = strings.TrimPrefix(branch, "refs/heads/")
+
+		m[filepath.Base(path)] = worktreeEntry{path: path, branch: branch}
+	}
+
+	return m
 }
