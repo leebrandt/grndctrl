@@ -123,9 +123,10 @@ func (m Model) detailSummary(p grind.ProjectConfig) string {
 
 	// Two columns: label + value pairs
 	colWidth := availWidth / 2
-	labelW := 18
+	labelW := 22
 	valW := colWidth - labelW
 	if valW < 10 {
+		labelW = colWidth - 10
 		valW = 10
 	}
 
@@ -394,9 +395,10 @@ func (m Model) detailGitSummary(row projectRow) string {
 		availWidth = 40
 	}
 
-	labelW := 20
+	labelW := 24
 	valW := availWidth/2 - labelW
 	if valW < 10 {
+		labelW = availWidth/2 - 10
 		valW = 10
 	}
 
@@ -454,9 +456,10 @@ func (m Model) detailProjectConfig(p grind.ProjectConfig) string {
 		availWidth = 40
 	}
 
-	labelW := 18
+	labelW := 22
 	valW := availWidth/2 - labelW
 	if valW < 10 {
+		labelW = availWidth/2 - 10
 		valW = 10
 	}
 
@@ -550,9 +553,10 @@ func sortedSessions(sessions []grind.Session) []grind.Session {
 }
 
 // renderPair renders a label: value pair with fixed widths.
+// The label is never truncated; if it exceeds labelW the column expands.
 func renderPair(label, value string, labelW, valW int, valueStyle lipgloss.Style) string {
 	label = DetailLabelStyle.Render(label + ":")
-	label = runewidth.Truncate(label, labelW, "…")
+	labelW = max(labelW, runewidth.StringWidth(label))
 	padded := label + strings.Repeat(" ", labelW-runewidth.StringWidth(label))
 
 	val := runewidth.Truncate(value, valW, "…")
