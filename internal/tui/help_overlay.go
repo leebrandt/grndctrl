@@ -37,24 +37,43 @@ type helpEntry struct {
 	description string
 }
 
-var helpEntries = []helpEntry{
+var globalHelpEntries = []helpEntry{
 	{"j / ↓", "Move cursor down"},
 	{"k / ↑", "Move cursor up"},
 	{"g", "Jump to first row"},
 	{"G", "Jump to last row"},
 	{"Ctrl+d", "Page down (half screen)"},
 	{"Ctrl+u", "Page up (half screen)"},
+	{"?", "Toggle this help overlay"},
+	{"q", "Quit"},
+}
+
+var dashboardHelpEntries = []helpEntry{
 	{"/", "Enter filter mode"},
 	{"Enter", "Open project detail"},
 	{"i", "Ideas triage panel"},
 	{"r", "Force refresh data"},
-	{"?", "Toggle this help overlay"},
 	{"Tab", "Switch focus between panels"},
-	{"q / Esc", "Quit"},
+	{"Esc", "Quit"},
+}
+
+var ideasHelpEntries = []helpEntry{
+	{"a", "Toggle all (incl. rejected)"},
+	{"r", "Toggle rejected only"},
+	{"d", "Default view (non-rejected)"},
+	{"Esc / i / Tab", "Back to dashboard"},
+}
+
+func (m Model) helpEntriesForView() []helpEntry {
+	switch m.currentView {
+	case viewIdeas:
+		return ideasHelpEntries
+	default:
+		return dashboardHelpEntries
+	}
 }
 
 func (m Model) helpOverlay(viewContent string) string {
-	// Build the overlay box
 	title := overlayTitleStyle.Render("Keyboard Shortcuts")
 	separator := overlayDimStyle.Render(strings.Repeat("─", 30))
 
@@ -64,17 +83,16 @@ func (m Model) helpOverlay(viewContent string) string {
 	b.WriteString(separator)
 	b.WriteString("\n\n")
 
-	for _, entry := range helpEntries {
-		key := overlayKeyStyle.Render(entry.key)
-		keyW := runewidth.StringWidth(entry.key)
-		padding := 18 - keyW
-		if padding < 1 {
-			padding = 1
-		}
-		b.WriteString(key)
-		b.WriteString(strings.Repeat(" ", padding))
-		b.WriteString(overlayDescStyle.Render(entry.description))
-		b.WriteString("\n")
+	for _, entry := range globalHelpEntries {
+		renderHelpEntry(&b, entry)
+	}
+
+	b.WriteString("\n")
+	b.WriteString(overlayDimStyle.Render(strings.Repeat("─", 30)))
+	b.WriteString("\n\n")
+
+	for _, entry := range m.helpEntriesForView() {
+		renderHelpEntry(&b, entry)
 	}
 
 	b.WriteString("\n")
@@ -82,13 +100,10 @@ func (m Model) helpOverlay(viewContent string) string {
 
 	boxContent := b.String()
 
-	// Determine overlay dimensions
 	overlayWidth := 48
 
-	// Wrap in border
 	box := overlayBorderStyle.Width(overlayWidth - 4).Render(boxContent)
 
-	// Place in center of viewport
 	viewWidth := m.width
 	viewHeight := m.height
 	if viewWidth == 0 {
@@ -98,7 +113,6 @@ func (m Model) helpOverlay(viewContent string) string {
 		viewHeight = 24
 	}
 
-	// Create a semi-transparent-like overlay by placing the box in the center
 	overlay := lipgloss.Place(
 		viewWidth,
 		viewHeight,
@@ -108,4 +122,17 @@ func (m Model) helpOverlay(viewContent string) string {
 	)
 
 	return overlay
+}
+
+func renderHelpEntry(b *strings.Builder, entry helpEntry) {
+	key := overlayKeyStyle.Render(entry.key)
+	keyW := runewidth.StringWidth(entry.key)
+	padding := 18 - keyW
+	if padding < 1 {
+		padding = 1
+	}
+	b.WriteString(key)
+	b.WriteString(strings.Repeat(" ", padding))
+	b.WriteString(overlayDescStyle.Render(entry.description))
+	b.WriteString("\n")
 }

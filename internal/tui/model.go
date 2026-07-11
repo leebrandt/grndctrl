@@ -68,11 +68,25 @@ type Model struct {
 	// detail view
 	detailProject  int // index into m.projects for the detail view
 	detailViewport viewport.Model
+
+	// ideas view
+	ideas        []workspace.Idea
+	ideasCursor  int
+	ideasLoaded  bool
+	ideasErr     error
+	ideasAll     bool // show all including rejected
+	ideasRejected bool // show only rejected
+	ideasScroll  int
 }
 
 type ProjectsLoadedMsg struct {
 	Projects []projectRow
 	Err      error
+}
+
+type IdeasLoadedMsg struct {
+	Ideas []workspace.Idea
+	Err   error
 }
 
 type tickMsg time.Time
@@ -123,6 +137,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{m.activeSessionTick()}
 		return m, tea.Batch(cmds...)
 
+	case IdeasLoadedMsg:
+		m.ideasLoaded = true
+		if msg.Err != nil {
+			m.ideasErr = msg.Err
+			return m, nil
+		}
+		m.ideas = msg.Ideas
+		m.ideasCursor = 0
+		m.ideasScroll = 0
+		return m, nil
+
 	case tickMsg:
 		m.tickPulse = !m.tickPulse
 		m.activeSessions = collectActiveSessions(m.projects)
@@ -153,6 +178,11 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Detail view keys
 	if m.currentView == viewDetail {
 		return m.handleDetailKey(msg)
+	}
+
+	// Ideas view keys
+	if m.currentView == viewIdeas {
+		return m.handleIdeasKey(msg)
 	}
 
 	// Filter mode keys
@@ -193,6 +223,9 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.refresh()
 	case "i":
 		m.currentView = viewIdeas
+		if !m.ideasLoaded {
+			return m, loadIdeas(m.workspace, m.ideasAll, m.ideasRejected)
+		}
 	case "tab":
 		m.toggleFocus()
 	case "enter":
@@ -220,6 +253,45 @@ func (m *Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detailViewport.HalfViewDown()
 	case "ctrl+u":
 		m.detailViewport.HalfViewUp()
+	}
+	return m, nil
+}
+
+// handleIdeasKey handles key events when the ideas view is active.
+func (m *Model) handleIdeasKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "i", "tab":
+		m.currentView = viewDashboard
+		return m, nil
+	case "j", "down":
+		m.ideasCursorDown()
+	case "k", "up":
+		m.ideasCursorUp()
+	case "g":
+		m.ideasCursor = 0
+		m.ideasScroll = 0
+	case "G":
+		visible := m.visibleIdeas()
+		if len(visible) > 0 {
+			m.ideasCursor = len(visible) - 1
+			m.clampIdeasScroll()
+		}
+	case "ctrl+d":
+		m.ideasPageDown()
+	case "ctrl+u":
+		m.ideasPageUp()
+	case "a":
+		m.ideasAll = !m.ideasAll
+		m.ideasRejected = false
+		return m, loadIdeas(m.workspace, m.ideasAll, false)
+	case "r":
+		m.ideasRejected = !m.ideasRejected
+		m.ideasAll = false
+		return m, loadIdeas(m.workspace, false, m.ideasRejected)
+	case "d":
+		m.ideasAll = false
+		m.ideasRejected = false
+		return m, loadIdeas(m.workspace, false, false)
 	}
 	return m, nil
 }
@@ -472,6 +544,96 @@ func (m Model) refresh() (tea.Model, tea.Cmd) {
 	return m, loadProjects(m.workspace)
 }
 
+func (m *Model) ideasCursorDown() {
+	visible := m.visibleIdeas()
+	if len(visible) == 0 {
+		return
+	}
+	if m.ideasCursor < len(visible)-1 {
+		m.ideasCursor++
+		m.clampIdeasScroll()
+	}
+}
+
+func (m *Model) ideasCursorUp() {
+	if m.ideasCursor > 0 {
+		m.ideasCursor--
+		m.clampIdeasScroll()
+	}
+}
+
+func (m *Model) ideasPageDown() {
+	ch := m.ideasContentHeight()
+	visible := m.visibleIdeas()
+	target := m.ideasCursor + ch
+	if target >= len(visible) {
+		target = len(visible) - 1
+	}
+	m.ideasCursor = target
+	m.clampIdeasScroll()
+}
+
+func (m *Model) ideasPageUp() {
+	ch := m.ideasContentHeight()
+	target := m.ideasCursor - ch
+	if target < 0 {
+		target = 0
+	}
+	m.ideasCursor = target
+	m.clampIdeasScroll()
+}
+
+func (m *Model) clampIdeasScroll() {
+	ch := m.ideasContentHeight()
+	if m.ideasCursor < m.ideasScroll {
+		m.ideasScroll = m.ideasCursor
+	}
+	if m.ideasCursor >= m.ideasScroll+ch {
+		m.ideasScroll = m.ideasCursor - ch + 1
+	}
+	if m.ideasScroll < 0 {
+		m.ideasScroll = 0
+	}
+}
+
+func (m *Model) ideasContentHeight() int {
+	bannerLines := len(m.activeSessions)
+	if bannerLines > 0 {
+		bannerLines++
+	}
+	overhead := 6 + bannerLines
+	ch := m.height - overhead
+	if ch < 1 {
+		ch = 1
+	}
+	return ch
+}
+
+func (m *Model) visibleIdeas() []workspace.Idea {
+	return m.ideas
+}
+
+func loadIdeas(ws string, includeAll, onlyRejected bool) tea.Cmd {
+	return func() tea.Msg {
+		ideas, err := workspace.CollectIdeas(ws, includeAll || onlyRejected)
+		if err != nil {
+			return IdeasLoadedMsg{Err: err}
+		}
+
+		if onlyRejected {
+			var filtered []workspace.Idea
+			for _, idea := range ideas {
+				if idea.Rejected {
+					filtered = append(filtered, idea)
+				}
+			}
+			ideas = filtered
+		}
+
+		return IdeasLoadedMsg{Ideas: ideas}
+	}
+}
+
 func collectActiveSessions(rows []projectRow) []activeSessionInfo {
 	var sessions []activeSessionInfo
 	for _, row := range rows {
@@ -519,6 +681,8 @@ func (m Model) View() string {
 	var content string
 	if m.currentView == viewDetail {
 		content = m.detailViewport.View()
+	} else if m.currentView == viewIdeas {
+		content = m.ideasView()
 	} else {
 		content = m.dashboardView()
 	}
