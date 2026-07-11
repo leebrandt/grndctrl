@@ -3,6 +3,7 @@ package tui
 import (
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,6 +20,13 @@ type projectRow struct {
 	gitErr         bool
 }
 
+type activeSessionInfo struct {
+	projectName string
+	start       time.Time
+	rate        float64
+	roundTo     string
+}
+
 type Model struct {
 	ready     bool
 	width     int
@@ -29,12 +37,17 @@ type Model struct {
 	loading   bool
 	err       error
 	spinner   spinner.Model
+
+	activeSessions []activeSessionInfo
+	tickPulse      bool
 }
 
 type ProjectsLoadedMsg struct {
 	Projects []projectRow
 	Err      error
 }
+
+type tickMsg time.Time
 
 func NewModel(ws string) Model {
 	s := spinner.New()
@@ -91,6 +104,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.projects = msg.Projects
+		m.activeSessions = collectActiveSessions(msg.Projects)
+		cmds := []tea.Cmd{m.activeSessionTick()}
+		return m, tea.Batch(cmds...)
+
+	case tickMsg:
+		m.tickPulse = !m.tickPulse
+		m.activeSessions = collectActiveSessions(m.projects)
+		if len(m.activeSessions) > 0 {
+			return m, m.activeSessionTick()
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -103,6 +126,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func collectActiveSessions(rows []projectRow) []activeSessionInfo {
+	var sessions []activeSessionInfo
+	for _, row := range rows {
+		s := row.info.Config.ActiveSession()
+		if s != nil {
+			sessions = append(sessions, activeSessionInfo{
+				projectName: row.info.Config.Name,
+				start:       s.Start,
+				rate:        row.info.Config.Billing.Rate,
+				roundTo:     row.info.Config.Billing.RoundTo,
+			})
+		}
+	}
+	return sessions
+}
+
+func (m Model) activeSessionTick() tea.Cmd {
+	if len(m.activeSessions) == 0 {
+		return nil
+	}
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
 
 func (m Model) View() string {
@@ -122,7 +170,14 @@ func (m Model) View() string {
 		return m.emptyView()
 	}
 
-	return m.dashboardView()
+	banner := m.activeSessionBanner()
+	content := m.dashboardView()
+
+	if banner != "" {
+		content = banner + "\n" + content
+	}
+
+	return content
 }
 
 func (m Model) loadingView() string {
