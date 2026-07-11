@@ -125,30 +125,15 @@ type ProjectInfo struct {
 	Branch       string
 }
 
-// CollectProjectInfos scans grind/projects/*/ for .project.json files and
-// enriches each with worktree path and branch from git worktree list.
-// Projects without a matching worktree still appear (with empty path/branch).
+// CollectProjectInfos iterates over git worktrees and reads .project.json
+// from each worktree's projects/ directory, matching Grind's write path.
 func CollectProjectInfos(workspaceRoot string) ([]ProjectInfo, error) {
-	projectsDir := filepath.Join(workspaceRoot, "grind", "projects")
-
-	entries, err := os.ReadDir(projectsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("reading grind/projects: %w", err)
-	}
-
 	wtMap := worktreeMap(workspaceRoot)
 
 	var infos []ProjectInfo
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		projectFile := filepath.Join(projectsDir, entry.Name(), ".project.json")
+	for name, wt := range wtMap {
+		projectFile := filepath.Join(wt.path, "projects", name, ".project.json")
 		data, err := os.ReadFile(projectFile)
 		if err != nil {
 			continue
@@ -156,11 +141,6 @@ func CollectProjectInfos(workspaceRoot string) ([]ProjectInfo, error) {
 
 		var project grind.ProjectConfig
 		if err := json.Unmarshal(data, &project); err != nil {
-			continue
-		}
-
-		wt, ok := wtMap[entry.Name()]
-		if !ok {
 			continue
 		}
 

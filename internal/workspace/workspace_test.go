@@ -213,7 +213,8 @@ func setupCollectProjectsFixture(t *testing.T) (workspaceRoot string, cleanup fu
 }
 
 // setupGrindProjectsFixture creates a workspace with the real Grind layout:
-// .project.json files live under grind/projects/<name>/, not in worktree roots.
+// .project.json files live under each worktree's projects/<name>/ directory,
+// matching Grind's write path.
 func setupGrindProjectsFixture(t *testing.T) (workspaceRoot string, cleanup func()) {
 	t.Helper()
 
@@ -286,9 +287,7 @@ func setupGrindProjectsFixture(t *testing.T) (workspaceRoot string, cleanup func
 		}
 	}
 
-	projectsDir := filepath.Join(grindDir, "projects")
-
-	alphaDir := filepath.Join(projectsDir, "project-alpha")
+	alphaDir := filepath.Join(tmpDir, "project-alpha", "projects", "project-alpha")
 	if err := os.MkdirAll(alphaDir, 0755); err != nil {
 		os.RemoveAll(tmpDir)
 		t.Fatalf("creating alpha dir: %v", err)
@@ -307,7 +306,7 @@ func setupGrindProjectsFixture(t *testing.T) (workspaceRoot string, cleanup func
 		t.Fatalf("writing alpha .project.json: %v", err)
 	}
 
-	betaDir := filepath.Join(projectsDir, "project-beta")
+	betaDir := filepath.Join(tmpDir, "project-beta", "projects", "project-beta")
 	if err := os.MkdirAll(betaDir, 0755); err != nil {
 		os.RemoveAll(tmpDir)
 		t.Fatalf("creating beta dir: %v", err)
@@ -326,7 +325,7 @@ func setupGrindProjectsFixture(t *testing.T) (workspaceRoot string, cleanup func
 		t.Fatalf("writing beta .project.json: %v", err)
 	}
 
-	gammaDir := filepath.Join(projectsDir, "project-gamma")
+	gammaDir := filepath.Join(grindDir, "projects", "project-gamma")
 	if err := os.MkdirAll(gammaDir, 0755); err != nil {
 		os.RemoveAll(tmpDir)
 		t.Fatalf("creating gamma dir: %v", err)

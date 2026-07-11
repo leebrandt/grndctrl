@@ -95,7 +95,37 @@ func (m Model) statusBar(availWidth int) string {
 		}
 	}
 
+	// Refresh indicator
+	refreshIndicator := m.refreshIndicator()
+	if refreshIndicator != "" {
+		ri := FilterBadgeStyle.Render(refreshIndicator)
+		hintsW := runewidth.StringWidth(hints)
+		riW := runewidth.StringWidth(ri)
+		if hintsW+riW+3 < availWidth {
+			padding := availWidth - hintsW - riW
+			hints = hints + strings.Repeat(" ", padding) + ri
+		}
+	}
+
 	return HelpStyle.Render(hints)
+}
+
+func (m Model) refreshIndicator() string {
+	spinChars := []string{"◐", "◓", "◑", "◒"}
+
+	if m.refreshing {
+		return spinChars[m.refreshSpinIdx%len(spinChars)] + " Refreshing..."
+	}
+
+	if !m.autoRefresh {
+		return ""
+	}
+
+	if m.lastRefresh.IsZero() {
+		return ""
+	}
+
+	return "Last: " + m.lastRefresh.Local().Format("3:04 PM")
 }
 
 func computeColumnWidths(availWidth int) (nameW, typeW, lastSessW, lastCommitW int) {
@@ -196,12 +226,17 @@ func (m Model) renderRow(i int, nameW, typeW, lastSessW, lastCommitW int) string
 	billed := formatHours(p.BilledHours())
 	unbilled := formatDollars(p.UnbilledAmount())
 
-	lastSess := lastSessionTime(p)
+	lastSess, isActive := lastSessionTime(p)
 	lastCommit := lastCommitTime(row.lastCommitDate, row.gitErr)
 
 	nameStyle := rowStyle
 	if p.LastSession() == nil {
 		nameStyle = NeverWorkedStyle
+	}
+
+	lastSessStyle := rowStyle
+	if isActive {
+		lastSessStyle = GreenStyle
 	}
 
 	var b strings.Builder
@@ -226,7 +261,7 @@ func (m Model) renderRow(i int, nameW, typeW, lastSessW, lastCommitW int) string
 	}
 	b.WriteString(bgStyle.Render(formatCell(unbilled, 9, lipgloss.Right, ubStyle)))
 	b.WriteString(" ")
-	b.WriteString(bgStyle.Render(formatCell(lastSess, lastSessW, lipgloss.Left, rowStyle)))
+	b.WriteString(bgStyle.Render(formatCell(lastSess, lastSessW, lipgloss.Left, lastSessStyle)))
 	b.WriteString(" ")
 	b.WriteString(bgStyle.Render(formatCell(lastCommit, lastCommitW, lipgloss.Left, rowStyle)))
 
@@ -259,9 +294,7 @@ func (m Model) rowForegroundStyle(i int) lipgloss.Style {
 	}
 
 	switch {
-	case p.ActiveSession() != nil:
-		return ActiveRowStyle
-	case row.dirty:
+	case p.ActiveSession() != nil || row.dirty:
 		return DirtyRowStyle
 	default:
 		return GreenStyle
@@ -359,15 +392,19 @@ func relativeTime(t time.Time) string {
 	}
 }
 
-func lastSessionTime(p grind.ProjectConfig) string {
+func lastSessionTime(p grind.ProjectConfig) (string, bool) {
+	if active := p.ActiveSession(); active != nil {
+		elapsed := time.Since(active.Start)
+		return formatDuration(elapsed), true
+	}
 	s := p.LastSession()
 	if s == nil {
-		return "never"
+		return "never", false
 	}
 	if s.End != nil {
-		return relativeTime(*s.End)
+		return relativeTime(*s.End), false
 	}
-	return "just now"
+	return "never", false
 }
 
 func lastCommitTime(date string, gitErr bool) string {

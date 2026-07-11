@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -77,6 +78,13 @@ type Model struct {
 	ideasAll     bool // show all including rejected
 	ideasRejected bool // show only rejected
 	ideasScroll  int
+
+	// auto-refresh
+	autoRefresh    bool
+	refreshInterval time.Duration
+	lastRefresh    time.Time
+	refreshing     bool
+	refreshSpinIdx int
 }
 
 type ProjectsLoadedMsg struct {
@@ -91,25 +99,33 @@ type IdeasLoadedMsg struct {
 
 type tickMsg time.Time
 
-func NewModel(ws string) Model {
+type refreshTickMsg time.Time
+
+func NewModel(ws string, refreshInterval time.Duration, autoRefresh bool) Model {
 	s := spinner.New()
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent))
 	s.Spinner = spinner.MiniDot
 
 	return Model{
-		workspace:      ws,
-		loading:        true,
-		spinner:        s,
-		currentView:    viewDashboard,
-		detailViewport: viewport.New(80, 20),
+		workspace:       ws,
+		loading:         true,
+		spinner:         s,
+		currentView:     viewDashboard,
+		detailViewport:  viewport.New(80, 20),
+		autoRefresh:     autoRefresh,
+		refreshInterval: refreshInterval,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		loadProjects(m.workspace),
 		m.spinner.Tick,
-	)
+	}
+	if m.autoRefresh {
+		cmds = append(cmds, m.autoRefreshTick())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -127,13 +143,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ProjectsLoadedMsg:
 		m.loading = false
+		m.refreshing = false
+		m.lastRefresh = time.Now()
 		if msg.Err != nil {
 			m.err = msg.Err
 			return m, nil
 		}
+		oldFingerprint := dataFingerprint(m.projects)
 		m.projects = msg.Projects
 		m.activeSessions = collectActiveSessions(msg.Projects)
 		m.rebuildFilter()
+		newFingerprint := dataFingerprint(m.projects)
+		if oldFingerprint != newFingerprint {
+			if m.currentView == viewDetail {
+				m.detailViewport.SetContent(m.detailView())
+			}
+		}
 		cmds := []tea.Cmd{m.activeSessionTick()}
 		return m, tea.Batch(cmds...)
 
@@ -155,6 +180,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.activeSessionTick()
 		}
 		return m, nil
+
+	case refreshTickMsg:
+		m.refreshing = true
+		m.refreshSpinIdx++
+		cmds := []tea.Cmd{m.refreshData()}
+		if m.autoRefresh {
+			cmds = append(cmds, m.autoRefreshTick())
+		}
+		return m, tea.Batch(cmds...)
 
 	case spinner.TickMsg:
 		if m.loading {
@@ -542,6 +576,67 @@ func (m *Model) quit() (tea.Model, tea.Cmd) {
 
 func (m Model) refresh() (tea.Model, tea.Cmd) {
 	return m, loadProjects(m.workspace)
+}
+
+func (m Model) autoRefreshTick() tea.Cmd {
+	return tea.Tick(m.refreshInterval, func(t time.Time) tea.Msg {
+		return refreshTickMsg(t)
+	})
+}
+
+func (m Model) refreshData() tea.Cmd {
+	return func() tea.Msg {
+		infos, err := workspace.CollectProjectInfos(m.workspace)
+		if err != nil {
+			return ProjectsLoadedMsg{Err: err}
+		}
+
+		bareRepo := filepath.Join(m.workspace, ".grind.repo.git")
+
+		rows := make([]projectRow, 0, len(infos))
+		for _, info := range infos {
+			row := projectRow{info: info}
+
+			dirty, err := grind.HasUncommittedChanges(info.WorktreePath)
+			if err == nil {
+				row.dirty = dirty
+			} else {
+				row.gitErr = true
+			}
+
+			date, err := grind.LastCommitDate(bareRepo, info.Branch)
+			if err == nil {
+				row.lastCommitDate = date
+			} else {
+				row.gitErr = true
+			}
+
+			rows = append(rows, row)
+		}
+
+		sortProjectRows(rows)
+
+		return ProjectsLoadedMsg{Projects: rows}
+	}
+}
+
+func dataFingerprint(rows []projectRow) string {
+	var b strings.Builder
+	for _, row := range rows {
+		b.WriteString(row.info.Config.Name)
+		b.WriteByte(':')
+		fmt.Fprintf(&b, "%d", len(row.info.Config.Time))
+		b.WriteByte(':')
+		if last := row.info.Config.LastSession(); last != nil && last.End != nil {
+			b.WriteString(last.End.Format(time.RFC3339Nano))
+		}
+		b.WriteByte(':')
+		if row.dirty {
+			b.WriteByte('1')
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func (m *Model) ideasCursorDown() {
