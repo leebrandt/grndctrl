@@ -3,6 +3,7 @@ package tui
 import (
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -11,6 +12,13 @@ import (
 
 	"github.com/leebrandt/grndctrl/internal/grind"
 	"github.com/leebrandt/grndctrl/internal/workspace"
+)
+
+type viewName int
+
+const (
+	viewDashboard viewName = iota
+	viewIdeas
 )
 
 type projectRow struct {
@@ -40,6 +48,20 @@ type Model struct {
 
 	activeSessions []activeSessionInfo
 	tickPulse      bool
+
+	// scroll tracking
+	scrollOffset int
+
+	// filter mode
+	filterMode  bool
+	filterText  string
+	filtered    []int // indices into m.projects matching filter
+
+	// help overlay
+	showHelp bool
+
+	// view / focus
+	currentView viewName
 }
 
 type ProjectsLoadedMsg struct {
@@ -55,9 +77,10 @@ func NewModel(ws string) Model {
 	s.Spinner = spinner.MiniDot
 
 	return Model{
-		workspace: ws,
-		loading:   true,
-		spinner:   s,
+		workspace:   ws,
+		loading:     true,
+		spinner:     s,
+		currentView: viewDashboard,
 	}
 }
 
@@ -71,25 +94,7 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "esc", "ctrl+c":
-			return m, tea.Quit
-		case "j", "down":
-			if !m.loading && len(m.projects) > 0 {
-				if m.cursor < len(m.projects)-1 {
-					m.cursor++
-				}
-			}
-			return m, nil
-		case "k", "up":
-			if !m.loading && len(m.projects) > 0 {
-				if m.cursor > 0 {
-					m.cursor--
-				}
-			}
-			return m, nil
-		}
-		return m, nil
+		return m.handleKeyMsg(msg)
 
 	case tea.WindowSizeMsg:
 		m.ready = true
@@ -105,6 +110,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.projects = msg.Projects
 		m.activeSessions = collectActiveSessions(msg.Projects)
+		m.rebuildFilter()
 		cmds := []tea.Cmd{m.activeSessionTick()}
 		return m, tea.Batch(cmds...)
 
@@ -126,6 +132,283 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Global keys (work regardless of mode)
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m.quit()
+	}
+
+	// Filter mode keys
+	if m.filterMode {
+		return m.handleFilterKey(msg)
+	}
+
+	// Help overlay keys
+	if m.showHelp {
+		if msg.String() == "?" || msg.String() == "esc" {
+			m.showHelp = false
+		}
+		return m, nil
+	}
+
+	// Normal mode keys
+	switch msg.String() {
+	case "esc":
+		return m.quit()
+	case "j", "down":
+		m.cursorDown()
+	case "k", "up":
+		m.cursorUp()
+	case "g":
+		m.cursorToTop()
+	case "G":
+		m.cursorToBottom()
+	case "ctrl+d":
+		m.pageDown()
+	case "ctrl+u":
+		m.pageUp()
+	case "/":
+		m.filterMode = true
+		m.filterText = ""
+	case "?":
+		m.showHelp = !m.showHelp
+	case "r":
+		return m.refresh()
+	case "i":
+		m.currentView = viewIdeas
+	case "tab":
+		m.toggleFocus()
+	case "enter":
+		// Placeholder for Spec 6 (project detail)
+		// Currently a no-op
+	}
+
+	return m, nil
+}
+
+func (m *Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.filterMode = false
+		m.filterText = ""
+		m.rebuildFilter()
+	case "enter":
+		m.filterMode = false
+		// Filter stays applied
+	case "backspace":
+		if len(m.filterText) > 0 {
+			m.filterText = m.filterText[:len(m.filterText)-1]
+			m.rebuildFilter()
+		}
+	default:
+		// Accept printable characters
+		if len(msg.String()) == 1 && msg.String()[0] >= 32 && msg.String()[0] <= 126 {
+			m.filterText += msg.String()
+			m.rebuildFilter()
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) rebuildFilter() {
+	if m.filterText == "" {
+		m.filtered = nil
+		return
+	}
+	lower := strings.ToLower(m.filterText)
+	m.filtered = nil
+	for i, p := range m.projects {
+		name := strings.ToLower(p.info.Config.Name)
+		typ := strings.ToLower(p.info.Config.Type)
+		if strings.Contains(name, lower) || strings.Contains(typ, lower) {
+			m.filtered = append(m.filtered, i)
+		}
+	}
+	// Clamp cursor to filtered range
+	if len(m.filtered) > 0 && m.cursor >= len(m.filtered) {
+		m.cursor = len(m.filtered) - 1
+	}
+}
+
+// visibleProjects returns the slice of projects to display (filtered or all).
+func (m *Model) visibleProjects() []projectRow {
+	if m.filtered != nil {
+		visible := make([]projectRow, len(m.filtered))
+		for i, idx := range m.filtered {
+			visible[i] = m.projects[idx]
+		}
+		return visible
+	}
+	return m.projects
+}
+
+// visibleCursor returns the cursor position in the visible list.
+func (m *Model) visibleCursor() int {
+	if m.filtered != nil {
+		for i, idx := range m.filtered {
+			if idx == m.cursor {
+				return i
+			}
+		}
+		return 0
+	}
+	return m.cursor
+}
+
+// visibleCount returns the number of visible projects.
+func (m *Model) visibleCount() int {
+	if m.filtered != nil {
+		return len(m.filtered)
+	}
+	return len(m.projects)
+}
+
+func (m *Model) cursorDown() {
+	count := m.visibleCount()
+	if count == 0 {
+		return
+	}
+	vc := m.visibleCursor()
+	if vc < count-1 {
+		// Advance the real cursor to the next visible project
+		if m.filtered != nil {
+			m.cursor = m.filtered[vc+1]
+		} else {
+			m.cursor++
+		}
+		m.clampScrollOffset()
+	}
+}
+
+func (m *Model) cursorUp() {
+	count := m.visibleCount()
+	if count == 0 {
+		return
+	}
+	vc := m.visibleCursor()
+	if vc > 0 {
+		if m.filtered != nil {
+			m.cursor = m.filtered[vc-1]
+		} else {
+			m.cursor--
+		}
+		m.clampScrollOffset()
+	}
+}
+
+func (m *Model) cursorToTop() {
+	if m.visibleCount() == 0 {
+		return
+	}
+	if m.filtered != nil {
+		m.cursor = m.filtered[0]
+	} else {
+		m.cursor = 0
+	}
+	m.scrollOffset = 0
+}
+
+func (m *Model) cursorToBottom() {
+	count := m.visibleCount()
+	if count == 0 {
+		return
+	}
+	if m.filtered != nil {
+		m.cursor = m.filtered[count-1]
+	} else {
+		m.cursor = count - 1
+	}
+	m.clampScrollOffset()
+}
+
+func (m *Model) pageDown() {
+	pageSize := m.pageSize()
+	vc := m.visibleCursor()
+	target := vc + pageSize
+	count := m.visibleCount()
+	if target >= count {
+		target = count - 1
+	}
+	if m.filtered != nil {
+		m.cursor = m.filtered[target]
+	} else {
+		m.cursor = target
+	}
+	m.clampScrollOffset()
+}
+
+func (m *Model) pageUp() {
+	pageSize := m.pageSize()
+	vc := m.visibleCursor()
+	target := vc - pageSize
+	if target < 0 {
+		target = 0
+	}
+	if m.filtered != nil {
+		m.cursor = m.filtered[target]
+	} else {
+		m.cursor = target
+	}
+	m.clampScrollOffset()
+}
+
+// pageSize returns half the available content height.
+func (m *Model) pageSize() int {
+	contentHeight := m.contentHeight()
+	if contentHeight < 2 {
+		return 1
+	}
+	return contentHeight / 2
+}
+
+// contentHeight returns the number of rows available for the project table.
+func (m *Model) contentHeight() int {
+	bannerLines := len(m.activeSessions)
+	if bannerLines > 0 {
+		bannerLines++ // separator
+	}
+	// 1 for title, 1 for header, 1 for separator, 1 for status bar, 2 for spacing
+	overhead := 6 + bannerLines
+	ch := m.height - overhead
+	if ch < 1 {
+		ch = 1
+	}
+	return ch
+}
+
+// clampScrollOffset ensures the cursor is visible in the viewport.
+func (m *Model) clampScrollOffset() {
+	ch := m.contentHeight()
+	vc := m.visibleCursor()
+
+	if vc < m.scrollOffset {
+		m.scrollOffset = vc
+	}
+	if vc >= m.scrollOffset+ch {
+		m.scrollOffset = vc - ch + 1
+	}
+	if m.scrollOffset < 0 {
+		m.scrollOffset = 0
+	}
+}
+
+func (m *Model) toggleFocus() {
+	if m.currentView == viewDashboard {
+		m.currentView = viewIdeas
+	} else {
+		m.currentView = viewDashboard
+	}
+}
+
+func (m *Model) quit() (tea.Model, tea.Cmd) {
+	return m, tea.Quit
+}
+
+func (m Model) refresh() (tea.Model, tea.Cmd) {
+	return m, loadProjects(m.workspace)
 }
 
 func collectActiveSessions(rows []projectRow) []activeSessionInfo {
@@ -177,7 +460,29 @@ func (m Model) View() string {
 		content = banner + "\n" + content
 	}
 
+	// Help overlay on top of everything
+	if m.showHelp {
+		content = m.helpOverlay(content)
+	}
+
+	// Filter prompt at bottom
+	if m.filterMode {
+		content = m.filterPrompt(content)
+	}
+
 	return content
+}
+
+func (m Model) filterPrompt(viewContent string) string {
+	promptText := "Filter: " + m.filterText + "▌"
+	prompt := FilterPromptStyle.Render(promptText)
+
+	// Place the prompt at the bottom of the view
+	lines := strings.Split(viewContent, "\n")
+	if len(lines) > 0 {
+		lines[len(lines)-1] = prompt
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) loadingView() string {

@@ -27,13 +27,39 @@ func (m Model) dashboardView() string {
 	b.WriteString(DimStyle.Render(strings.Repeat("─", availWidth)))
 	b.WriteString("\n")
 
-	for i := range m.projects {
-		b.WriteString(m.renderRow(i, nameW, typeW, lastSessW, lastCommitW))
+	visible := m.visibleProjects()
+	ch := m.contentHeight()
+
+	// Ensure scroll offset is valid
+	if m.scrollOffset > len(visible)-ch && len(visible) > ch {
+		m.scrollOffset = len(visible) - ch
+	}
+	if m.scrollOffset < 0 {
+		m.scrollOffset = 0
+	}
+
+	start := m.scrollOffset
+	end := start + ch
+	if end > len(visible) {
+		end = len(visible)
+	}
+
+	for i := start; i < end; i++ {
+		// Map visible index back to original index for cursor/background
+		origIdx := m.visibleToOriginal(i)
+		b.WriteString(m.renderRow(origIdx, nameW, typeW, lastSessW, lastCommitW))
 		b.WriteString("\n")
 	}
 
+	// Fill remaining rows if fewer projects than content height
+	if len(visible) < ch {
+		for i := 0; i < ch-len(visible); i++ {
+			b.WriteString("\n")
+		}
+	}
+
 	b.WriteString("\n")
-	b.WriteString(HelpStyle.Render("j/k: navigate  •  q: quit"))
+	b.WriteString(m.statusBar(availWidth))
 
 	out := b.String()
 	lines := strings.Split(out, "\n")
@@ -42,6 +68,34 @@ func (m Model) dashboardView() string {
 	}
 
 	return out
+}
+
+// visibleToOriginal maps a visible index back to the original projects slice index.
+func (m *Model) visibleToOriginal(visibleIdx int) int {
+	if m.filtered != nil {
+		if visibleIdx >= 0 && visibleIdx < len(m.filtered) {
+			return m.filtered[visibleIdx]
+		}
+	}
+	return visibleIdx
+}
+
+func (m Model) statusBar(availWidth int) string {
+	hints := "j/k  move  |  /  filter  |  Enter  detail  |  ?  help  |  q  quit"
+
+	// Filter badge
+	if m.filterText != "" {
+		badge := fmt.Sprintf("Filter: %s", m.filterText)
+		badge = FilterBadgeStyle.Render(badge)
+		hintsW := runewidth.StringWidth(hints)
+		badgeW := runewidth.StringWidth(badge)
+		if hintsW+badgeW+3 < availWidth {
+			padding := availWidth - hintsW - badgeW
+			hints = hints + strings.Repeat(" ", padding) + badge
+		}
+	}
+
+	return HelpStyle.Render(hints)
 }
 
 func computeColumnWidths(availWidth int) (nameW, typeW, lastSessW, lastCommitW int) {

@@ -92,4 +92,14 @@ var (
 
 	AltRowStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("#1c1e2b"))
+
+	FilterBadgeStyle = lipgloss.NewStyle().
+				Foreground(colorAccent).
+				Bold(true)
+
+	FilterPromptStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(colorAccent).
+				Padding(0, 1).
+				Foreground(colorFg)
 )
